@@ -13,6 +13,3 @@ M: System.Xml.XmlReader.Create(string inputUri, System.Xml.XmlReaderSettings? se
 
 M:Microsoft.VisualStudio.Shell.VsTaskLibraryHelper.FileAndForget(System.Threading.Tasks.Task,System.String,System.String,System.Func{System.Exception,System.Boolean}); NuGet.VisualStudio.Telemetry.INuGetTelemetryProvider.PostFault, NuGet.VisualStudio.Telemetry.TelemetryUtility.PostFaultAsync or NuGet.VisualStudio.Telemetry.INuGetTelemetryProvider.PostFaultAsync
 M:Microsoft.VisualStudio.Shell.VsTaskLibraryHelper.FileAndForget(Microsoft.VisualStudio.Threading.JoinableTask,System.String,System.String,System.Func{System.Exception,System.Boolean}); NuGet.VisualStudio.Telemetry.INuGetTelemetryProvider.PostFault, NuGet.VisualStudio.Telemetry.TelemetryUtility.PostFaultAsync or NuGet.VisualStudio.Telemetry.INuGetTelemetryProvider.PostFaultAsync
-
-M:System.Diagnostics.Debugger.Break(); This should not be used in production code as the resulting dialog is not meant to be shown to users.
-M:System.Diagnostics.Debugger.Launch(); This should not be used in production code as the resulting dialog is not meant to be shown to users.
