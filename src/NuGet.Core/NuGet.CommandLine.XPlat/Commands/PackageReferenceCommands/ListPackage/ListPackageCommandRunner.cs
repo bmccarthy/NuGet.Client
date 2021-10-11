@@ -92,7 +92,7 @@ namespace NuGet.CommandLine.XPlat
 
                 if (!MSBuildAPIUtility.IsPackageReferenceProject(project))
                 {
-                    jsonProjectDictionary[projectPath] = new JSONProject { Name = projectPath, Errors = new List<string>(new string[] { string.Format(CultureInfo.CurrentCulture, Strings.Error_NotPRProject, projectPath)}) };
+                    result.Errors.Add(string.Format(CultureInfo.CurrentCulture, Strings.Error_NotPRProject, projectPath));
                     continue;
                 }
 
