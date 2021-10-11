@@ -59,6 +59,7 @@ namespace NuGet.CommandLine.XPlat
         public async Task ExecuteCommandAsync(ListPackageArgs listPackageArgs)
         {
             var result = new JSONResult();
+            var jsonProjectDictionary = new Dictionary<string, JSONProject>();
 
             if (!File.Exists(listPackageArgs.Path))
             {
@@ -88,27 +89,22 @@ namespace NuGet.CommandLine.XPlat
                 //Open project to evaluate properties for the assets
                 //file and the name of the project
                 var project = MSBuildAPIUtility.GetProject(projectPath);
-                JSONProject jsonProject = new JSONProject();
 
                 if (!MSBuildAPIUtility.IsPackageReferenceProject(project))
                 {
-                    jsonProject.Name = projectPath;
-                    jsonProject.Errors.Add(string.Format(CultureInfo.CurrentCulture,
-                        Strings.Error_NotPRProject,
-                        projectPath));
+                    jsonProjectDictionary[projectPath] = new JSONProject { Name = projectPath, Errors = new List<string>(new string[] { string.Format(CultureInfo.CurrentCulture, Strings.Error_NotPRProject, projectPath)}) };
                     continue;
                 }
 
                 var projectName = project.GetPropertyValue(ProjectName);
+                jsonProjectDictionary[projectName] = new JSONProject { Name = projectName };
 
                 var assetsPath = project.GetPropertyValue(ProjectAssetsFile);
-
-                jsonProject.Name = projectName;
 
                 // If the file was not found, print an error message and continue to next project
                 if (!File.Exists(assetsPath))
                 {
-                    jsonProject.Errors.Add(string.Format(CultureInfo.CurrentCulture,
+                    jsonProjectDictionary[projectName].Errors.Add(string.Format(CultureInfo.CurrentCulture,
                         Strings.Error_AssetsFileNotFound,
                         projectPath));
                 }
@@ -133,7 +129,7 @@ namespace NuGet.CommandLine.XPlat
                             // No packages means that no package references at all were found in the current framework
                             if (!packages.Any())
                             {
-                                jsonProject.Errors.Add(string.Format(Strings.ListPkg_NoPackagesFoundForFrameworks, projectName));
+                                jsonProjectDictionary[projectName].Errors.Add(string.Format(Strings.ListPkg_NoPackagesFoundForFrameworks, projectName));
                             }
                             else
                             {
@@ -154,7 +150,7 @@ namespace NuGet.CommandLine.XPlat
                                     //ProjectPackagesPrintUtility.PrintPackagesJSON(packages, projectName, listPackageArgs, ref hasAutoReference);
                                     autoReferenceFound = autoReferenceFound || hasAutoReference;
 
-                                    jsonProject.Frameworks = packages.Select(frameworkPackage =>
+                                    jsonProjectDictionary[projectName].Frameworks = packages.Select(frameworkPackage =>
                                     {
                                         return new JSONFramework()
                                         {
@@ -181,22 +177,22 @@ namespace NuGet.CommandLine.XPlat
                                             }).ToList(),
                                         };
                                     }).ToList();
-                                    result.Projects.Add(jsonProject);
                                 }
                             }
                         }
                     }
                     else
                     {
-                        jsonProject.Errors.Add(string.Format(Strings.ListPkg_ErrorReadingAssetsFile, assetsPath));
+                        jsonProjectDictionary[projectName].Errors.Add(string.Format(Strings.ListPkg_ErrorReadingAssetsFile, assetsPath));
                     }
-
-                    Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.Indented));
 
                     // Unload project
                     ProjectCollection.GlobalProjectCollection.UnloadProject(project);
                 }
             }
+
+            result.Projects = jsonProjectDictionary.Values.ToList();
+            Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.Indented));
         }
 
         public static bool FilterPackages(IEnumerable<FrameworkPackages> packages, ListPackageArgs listPackageArgs)
