@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Build.Evaluation;
+using Newtonsoft.Json;
 using NuGet.CommandLine.XPlat.Utility;
 using NuGet.Configuration;
 using NuGet.Packaging;
@@ -20,6 +21,32 @@ namespace NuGet.CommandLine.XPlat
 {
     internal class ListPackageCommandRunner : IListPackageCommandRunner
     {
+        private class JSONResult
+        {
+            public List<JSONProject> Projects { get; set; } = new List<JSONProject>();
+            public List<string> Sources { get; set; } = new List<string>();
+            public List<string> Errors { get; set; } = new List<string>();
+        }
+        private class JSONProject
+        {
+            public string Name { get; set; }
+            public List<JSONFramework> Frameworks { get; set; } = new List<JSONFramework>();
+            public List<string> Errors { get; set; } = new List<string>();
+        }
+        private class JSONFramework
+        {
+            public string Framework { get; set; }
+            public List<JSONPackage> TopLevelPackages { get; set; } = new List<JSONPackage>();
+            public List<JSONPackage> TransitivePackages { get; set; } = new List<JSONPackage>();
+        }
+        private class JSONPackage
+        {
+            public string Id { get; set; }
+            public string RequestedVersion { get; set; }
+            public string ResolvedVersion { get; set; }
+            public string LatestVersion { get; set; }
+        }
+
         private const string ProjectAssetsFile = "ProjectAssetsFile";
         private const string ProjectName = "MSBuildProjectName";
         private Dictionary<PackageSource, SourceRepository> _sourceRepositoryCache;
@@ -31,11 +58,14 @@ namespace NuGet.CommandLine.XPlat
 
         public async Task ExecuteCommandAsync(ListPackageArgs listPackageArgs)
         {
+            var result = new JSONResult();
+
             if (!File.Exists(listPackageArgs.Path))
             {
-                Console.Error.WriteLine(string.Format(CultureInfo.CurrentCulture,
+                result.Errors.Add(string.Format(CultureInfo.CurrentCulture,
                         Strings.ListPkg_ErrorFileNotFound,
                         listPackageArgs.Path));
+                Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.Indented));
                 return;
             }
             //If the given file is a solution, get the list of projects
@@ -50,10 +80,7 @@ namespace NuGet.CommandLine.XPlat
             //Print sources, but not for generic list (which is offline)
             if (listPackageArgs.ReportType != ReportType.Default)
             {
-                Console.WriteLine();
-                Console.WriteLine(Strings.ListPkg_SourcesUsedDescription);
-                ProjectPackagesPrintUtility.PrintSources(listPackageArgs.PackageSources);
-                Console.WriteLine();
+                result.Sources = listPackageArgs.PackageSources.Select(packageSource => packageSource.Source).ToList();
             }
 
             foreach (var projectPath in projectsPaths)
@@ -61,13 +88,14 @@ namespace NuGet.CommandLine.XPlat
                 //Open project to evaluate properties for the assets
                 //file and the name of the project
                 var project = MSBuildAPIUtility.GetProject(projectPath);
+                JSONProject jsonProject = new JSONProject();
 
                 if (!MSBuildAPIUtility.IsPackageReferenceProject(project))
                 {
-                    Console.Error.WriteLine(string.Format(CultureInfo.CurrentCulture,
+                    jsonProject.Name = projectPath;
+                    jsonProject.Errors.Add(string.Format(CultureInfo.CurrentCulture,
                         Strings.Error_NotPRProject,
                         projectPath));
-                    Console.WriteLine();
                     continue;
                 }
 
@@ -75,13 +103,14 @@ namespace NuGet.CommandLine.XPlat
 
                 var assetsPath = project.GetPropertyValue(ProjectAssetsFile);
 
+                jsonProject.Name = projectName;
+
                 // If the file was not found, print an error message and continue to next project
                 if (!File.Exists(assetsPath))
                 {
-                    Console.Error.WriteLine(string.Format(CultureInfo.CurrentCulture,
+                    jsonProject.Errors.Add(string.Format(CultureInfo.CurrentCulture,
                         Strings.Error_AssetsFileNotFound,
                         projectPath));
-                    Console.WriteLine();
                 }
                 else
                 {
@@ -104,7 +133,7 @@ namespace NuGet.CommandLine.XPlat
                             // No packages means that no package references at all were found in the current framework
                             if (!packages.Any())
                             {
-                                Console.WriteLine(string.Format(Strings.ListPkg_NoPackagesFoundForFrameworks, projectName));
+                                jsonProject.Errors.Add(string.Format(Strings.ListPkg_NoPackagesFoundForFrameworks, projectName));
                             }
                             else
                             {
@@ -118,37 +147,51 @@ namespace NuGet.CommandLine.XPlat
 
                                 bool printPackages = FilterPackages(packages, listPackageArgs);
 
-                                // Filter packages for dedicated reports, inform user if none
-                                if (listPackageArgs.ReportType != ReportType.Default && !printPackages)
-                                {
-                                    switch (listPackageArgs.ReportType)
-                                    {
-                                        case ReportType.Outdated:
-                                            Console.WriteLine(string.Format(Strings.ListPkg_NoUpdatesForProject, projectName));
-                                            break;
-                                        case ReportType.Deprecated:
-                                            Console.WriteLine(string.Format(Strings.ListPkg_NoDeprecatedPackagesForProject, projectName));
-                                            break;
-                                        case ReportType.Vulnerable:
-                                            Console.WriteLine(string.Format(Strings.ListPkg_NoVulnerablePackagesForProject, projectName));
-                                            break;
-                                    }
-                                }
-
                                 printPackages = printPackages || ReportType.Default == listPackageArgs.ReportType;
                                 if (printPackages)
                                 {
                                     var hasAutoReference = false;
-                                    ProjectPackagesPrintUtility.PrintPackages(packages, projectName, listPackageArgs, ref hasAutoReference);
+                                    //ProjectPackagesPrintUtility.PrintPackagesJSON(packages, projectName, listPackageArgs, ref hasAutoReference);
                                     autoReferenceFound = autoReferenceFound || hasAutoReference;
+
+                                    jsonProject.Frameworks = packages.Select(frameworkPackage =>
+                                    {
+                                        return new JSONFramework()
+                                        {
+                                            Framework = frameworkPackage.Framework,
+                                            TopLevelPackages = frameworkPackage.TopLevelPackages.Select(package =>
+                                            {
+                                                return new JSONPackage
+                                                {
+                                                    Id = package.Name,
+                                                    RequestedVersion = package.OriginalRequestedVersion,
+                                                    ResolvedVersion = package.ResolvedPackageMetadata?.Identity?.Version?.ToString(),
+                                                    LatestVersion = package.LatestPackageMetadata?.Identity?.Version?.ToString(),
+                                                };
+                                            }).ToList(),
+                                            TransitivePackages = frameworkPackage.TransitivePackages.Select(package =>
+                                            {
+                                                return new JSONPackage
+                                                {
+                                                    Id = package.Name,
+                                                    RequestedVersion = package.OriginalRequestedVersion,
+                                                    ResolvedVersion = package.ResolvedPackageMetadata?.Identity?.Version?.ToString(),
+                                                    LatestVersion = package.LatestPackageMetadata?.Identity?.Version?.ToString(),
+                                                };
+                                            }).ToList(),
+                                        };
+                                    }).ToList();
+                                    result.Projects.Add(jsonProject);
                                 }
                             }
                         }
                     }
                     else
                     {
-                        Console.WriteLine(string.Format(Strings.ListPkg_ErrorReadingAssetsFile, assetsPath));
+                        jsonProject.Errors.Add(string.Format(Strings.ListPkg_ErrorReadingAssetsFile, assetsPath));
                     }
+
+                    Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.Indented));
 
                     // Unload project
                     ProjectCollection.GlobalProjectCollection.UnloadProject(project);
@@ -156,10 +199,10 @@ namespace NuGet.CommandLine.XPlat
             }
 
             // Print a legend message for auto-reference markers used
-            if (autoReferenceFound)
-            {
-                Console.WriteLine(Strings.ListPkg_AutoReferenceDescription);
-            }
+            //if (autoReferenceFound)
+            //{
+            //    Console.WriteLine(Strings.ListPkg_AutoReferenceDescription);
+            //}
         }
 
         public static bool FilterPackages(IEnumerable<FrameworkPackages> packages, ListPackageArgs listPackageArgs)
