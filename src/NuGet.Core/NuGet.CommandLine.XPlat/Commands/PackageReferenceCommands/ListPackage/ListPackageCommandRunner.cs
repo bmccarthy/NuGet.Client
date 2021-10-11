@@ -197,12 +197,6 @@ namespace NuGet.CommandLine.XPlat
                     ProjectCollection.GlobalProjectCollection.UnloadProject(project);
                 }
             }
-
-            // Print a legend message for auto-reference markers used
-            //if (autoReferenceFound)
-            //{
-            //    Console.WriteLine(Strings.ListPkg_AutoReferenceDescription);
-            //}
         }
 
         public static bool FilterPackages(IEnumerable<FrameworkPackages> packages, ListPackageArgs listPackageArgs)
